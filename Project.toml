@@ -1,0 +1,13 @@
+name = "NoisyCE"
+uuid = "c3f3777e-a493-47fb-88ac-35f075ee333f"
+authors = ["Facundo Sapienza"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "0.0.1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
