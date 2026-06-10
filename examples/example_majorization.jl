@@ -180,6 +180,10 @@ probs_fbm_σgrad    = [_ord_probs(x_fbm          .+ snr .* σ_fbm .* ε_fbm, d_f
 
 # ------------------------------------------------------------
 # Correlated noise sweep: AR(1) with fixed σ, varying ρ
+# This generates a signal such that 
+# E[ϵ_i] = 0
+# V[ϵ_i] = σ^2
+# E[ϵ_(i+k) ϵ_i] = ρ^k σ^2
 # ------------------------------------------------------------
 
 function ar1_noise(n, σ, ρ; seed)
@@ -231,7 +235,8 @@ println("Done.")
 maj_ext(probs) = [0.0; majorization_curve(probs)]
 
 N_plot       = 200
-plot_idx_disc     = (N - N_plot + 1):(N - N_plot + 41) |> collect
+plot_idx_disc     = 9800:9900
+plot_idx_logis    = 9800:9859
 plot_idx_cont     = (N - N_plot + 1):N |> collect
 # Inset: consecutive original samples so individual data points are visible.
 n_inset      = 20           # number of consecutive original samples to show
@@ -249,10 +254,13 @@ SNR_tick_lbls = [L"10^{%$(round(Int, log10(SNR_grad[i])))}" for i in tick_idx]
 ρ_tick_vals   = x_norm_ρ[tick_idx_ρ]
 ρ_tick_lbls   = ["$(round(ρ_grad[i], digits=2))" for i in tick_idx_ρ]
 
-lay = @layout [grid(5, 5, widths=[0.28, 0.17, 0.17, 0.19, 0.19]) c{0.10w}]
-fig = plot(layout=lay, size=(1700, 1200), dpi=600,
+lay = @layout [grid(5, 4); b{0.07h}]
+fig = plot(layout=lay, size=(1150, 1350), dpi=600,
            guidefontsize=8, tickfontsize=7, legendfontsize=7,
-           framestyle=:axes, grid=:none, margin=3Plots.mm, legend=false)
+           framestyle=:axes, grid=:none,
+           left_margin=0Plots.mm, right_margin=0Plots.mm,
+           top_margin=2Plots.mm, bottom_margin=2Plots.mm,
+           legend=false)
 
 function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_ts,
                    probs_clean,
@@ -260,23 +268,21 @@ function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_t
                    probs_ρnoisy, pvals_ρ,
                    plot_idx,
                    row_label; first_row=false, ylims_ts=nothing, σ=nothing, discrete=false,
-                   snr_xlabel="SNR", snr_ticks=(SNR_tick_vals, SNR_tick_lbls))
+                   snr_xlabel="Noise level σ₀", snr_ticks=(SNR_tick_vals, SNR_tick_lbls))
     n_pat_ds   = factorial(d_ds)
     ranks_norm = collect(0:n_pat_ds) ./ n_pat_ds
     uniform_norm = ranks_norm
 
-    sp_ts    = (row - 1) * 5 + 1
-    sp_maj_σ = (row - 1) * 5 + 2
-    sp_maj_ρ = (row - 1) * 5 + 3
-    sp_pval  = (row - 1) * 5 + 4
-    sp_diff  = (row - 1) * 5 + 5
-    sp_inset = 26 + row
+    sp_ts    = (row - 1) * 4 + 1
+    sp_maj_σ = (row - 1) * 4 + 2
+    sp_maj_ρ = (row - 1) * 4 + 3
+    sp_pval  = (row - 1) * 4 + 4
+    sp_inset = 21 + row
 
     ts_title    = first_row ? "Time series"        : ""
     maj_σ_title = first_row ? "White noise (σ)"   : ""
-    maj_ρ_title = first_row ? "Colored noise (SNR=$(SNR_corr_fix), ρ ∈ [0, 1])" : ""
+    maj_ρ_title = first_row ? L"Colored noise $(\rho)$" : ""
     pval_title  = first_row ? "Majorization test"  : ""
-    diff_title  = first_row ? "Δ majorization (white noise)" : ""
 
     # --- Time series ---
     noisy_ts = [x_clean .+ snr .* σ .* ε_white for snr in SNR_grad]
@@ -291,8 +297,8 @@ function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_t
     discrete && scatter!(fig, t_axis, x_clean[plot_idx]; subplot=sp_ts, markercolor=:black,
                          markerstrokecolor=:black, markersize=3, label="")
 
-    # Zoom box on main panel: mark the inset_orig region in physical t_axis coordinates
-    t_inset_orig = (inset_orig .- 1) .* Δt_ds   # physical time of original samples
+    # Zoom box on main panel: inset coords relative to plot_idx[1] to match 0-based t_axis
+    t_inset_orig = (inset_orig .- plot_idx[1]) .* Δt_ds
     x_lo = t_inset_orig[1]
     x_hi = t_inset_orig[end]
     all_inset_y = vcat([ts[inset_orig] for ts in noisy_ts]..., x_clean[inset_orig])
@@ -302,7 +308,7 @@ function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_t
           subplot=sp_ts, linecolor=:black, linewidth=1.2, fillalpha=0.0, label="")
 
     # Inset panel: consecutive original samples with lines + scatter
-    plot!(fig; inset=(sp_ts, bbox(0.54, 0.04, 0.43, 0.45)), subplot=sp_inset,
+    plot!(fig; inset=(sp_ts, bbox(0.54, 0.50, 0.43, 0.45)), subplot=sp_inset,
           framestyle=:box, grid=false, xticks=nothing, yticks=nothing,
           background_color_inside=RGBA(1,1,1,0.85))
     for (i, ts) in enumerate(noisy_ts)
@@ -326,7 +332,7 @@ function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_t
     end
     plot!(fig, ranks_norm, maj_ext(probs_clean);
           subplot=sp_maj_σ, color=:black, linewidth=2.2, label="",
-          xlabel="Pattern rank", ylabel="Accumulated prob.", title=maj_σ_title,
+          xlabel="rank", ylabel="Accumulated prob.", title=maj_σ_title,
           xlims=(0.0, 1.0), ylims=(0.0, 1.0), aspect_ratio=1)
     plot!(fig, ranks_norm, uniform_norm;
           subplot=sp_maj_σ, color=:gray, linewidth=0.8, linestyle=:dash, label="")
@@ -339,7 +345,7 @@ function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_t
     end
     plot!(fig, ranks_norm, maj_ext(probs_clean);
           subplot=sp_maj_ρ, color=:black, linewidth=2.2, label="",
-          xlabel="Pattern rank", ylabel="Accumulated prob.", title=maj_ρ_title,
+          xlabel="rank", ylabel="Accumulated prob.", title=maj_ρ_title,
           xlims=(0.0, 1.0), ylims=(0.0, 1.0), aspect_ratio=1)
     plot!(fig, ranks_norm, uniform_norm;
           subplot=sp_maj_ρ, color=:gray, linewidth=0.8, linestyle=:dash, label="")
@@ -375,38 +381,19 @@ function draw_row!(row, x_clean, ε_white, d_ds, τ_ds, Δt_ds, t_axis, xlabel_t
     end
     annotate!(fig, 0.5, 1.18, text("ρ", 7, :steelblue, :center); subplot=sp_pval)
 
-    # --- Majorization difference: white noise σ sweep ---
-    maj_clean = maj_ext(probs_clean)
-    for i in eachindex(SNR_grad)
-        maj_noisy = maj_ext(probs_σnoisy[i])
-        diff = maj_noisy .- maj_clean
-        pos_mask = diff .> 0
-        # Line for all points: log(1/N + |diff|)
-        plot!(fig, ranks_norm, log.(1/N .+ abs.(diff));
-              subplot=sp_diff, color=SNR_colors[i], linewidth=0.8, alpha=0.6, label="")
-        # Circle scatter only where noisy > clean
-        if any(pos_mask)
-            scatter!(fig, ranks_norm[pos_mask], log.(1/N .+ abs.(diff[pos_mask]));
-                     subplot=sp_diff, color=SNR_colors[i],
-                     markershape=:circle, markersize=2, markerstrokewidth=0, alpha=0.8, label="")
-        end
-    end
-    plot!(fig; subplot=sp_diff,
-          xlabel="Pattern rank", ylabel=L"\log(N^{-1} + |\Delta|)",
-          title=diff_title, xlims=(0.0, 1.0))
 end
 
-# Per-model time axes — discrete maps use plot_idx_disc, continuous use plot_idx_cont
-t_axis_henon  = float.(plot_idx_disc)
-t_axis_logis  = float.(plot_idx_disc)
-t_axis_lorenz = (plot_idx_cont .- 1) .* δt_lorenz
-t_axis_ou     = (plot_idx_cont .- 1) .* δt_ou
-t_axis_fbm    = (plot_idx_cont .- 1) .* δt_fbm
+# Per-model time axes — all start from 0 for display
+t_axis_henon  = float.(0:length(plot_idx_disc)-1)
+t_axis_logis  = float.(0:length(plot_idx_logis)-1)
+t_axis_lorenz = (0:length(plot_idx_cont)-1) .* δt_lorenz
+t_axis_ou     = (0:length(plot_idx_cont)-1) .* δt_ou
+t_axis_fbm    = (0:length(plot_idx_cont)-1) .* δt_fbm
 
 draw_row!(1, x_henon,       ε_henon,  d_henon,  τ_henon,  δt_henon,  t_axis_henon,  "Iteration",
           prob_henon_clean,  probs_henon_σgrad,  pvals_henon,  probs_henon_ρgrad,  pvals_henon_ρ, plot_idx_disc, "Hénon";       first_row=true, ylims_ts=(-2.0, 2.0), σ=σ_henon, discrete=true)
 draw_row!(2, x_logis,       ε_logis,  d_logis,  τ_logis,  δt_logis,  t_axis_logis,  "Iteration",
-          prob_logis_clean,  probs_logis_σgrad,  pvals_logis,  probs_logis_ρgrad,  pvals_logis_ρ, plot_idx_disc, "Logistic Map"; first_row=false, ylims_ts=(0.0, 1.0), σ=σ_logis, discrete=true)
+          prob_logis_clean,  probs_logis_σgrad,  pvals_logis,  probs_logis_ρgrad,  pvals_logis_ρ, plot_idx_logis, "Logistic Map"; first_row=false, ylims_ts=(0.0, 1.0), σ=σ_logis, discrete=true)
 draw_row!(3, x_lorenz_norm, ε_lorenz, d_lorenz, τ_lorenz, δt_lorenz, t_axis_lorenz, "Time",
           prob_lorenz_clean, probs_lorenz_σgrad, pvals_lorenz, probs_lorenz_ρgrad, pvals_lorenz_ρ, plot_idx_cont, "Lorenz"; σ=σ_lorenz)
 draw_row!(4, x_ou,          ε_ou,     d_ou,     τ_ou,     δt_ou,     t_axis_ou,     "Time",
@@ -415,65 +402,57 @@ draw_row!(5, x_fbm,         ε_fbm,    d_fbm,    τ_fbm,    δt_fbm,    t_axis_f
           prob_fbm_clean,    probs_fbm_σgrad,    pvals_fbm,    probs_fbm_ρgrad,    pvals_fbm_ρ,    plot_idx_cont, "fBm (H=$H_fbm)"; σ=σ_fbm)
 
 # ------------------------------------------------------------
-# Hénon phase portrait: inset on subplot 1 (Hénon timeseries panel)
-# Added after all draw_row! calls so it gets subplot index 22 without
-# disrupting the zoom insets (18-21) created inside draw_row!
+# Legend panel at the bottom (subplot 21)
 # ------------------------------------------------------------
 
-sp_phase = length(fig) + 1
-scatter!(fig, x_henon, y_henon;
-         inset=(1, bbox(0.54, 0.54, 0.46, 0.43)), subplot=sp_phase,
-         markersize=0.5, markercolor=:black, markerstrokecolor=:black,
-         markerstrokealpha=0, alpha=0.4, label="",
-         framestyle=:box, grid=false, xticks=nothing, yticks=nothing,
-         background_color_inside=RGBA(1,1,1,0.85))
-annotate!(fig, -0.3, 0.38, text(L"x_n,\, y_n", 6, :gray30); subplot=sp_phase)
-
-# ------------------------------------------------------------
-# Legend column (subplot 21)
-# ------------------------------------------------------------
-
-legend_idx = 26
+legend_idx = 21
 
 plot!(fig; subplot=legend_idx, framestyle=:none, xticks=nothing, yticks=nothing,
-      xlims=(0,1), ylims=(0,1), legend=:inside, legendfontsize=6,
-      background_color_inside=:transparent)
+      xlims=(0,1), ylims=(0,1), legend=:inside, legendfontsize=7,
+      legendcolumns=3, background_color_inside=:transparent,
+      top_margin=-4Plots.mm, bottom_margin=-4Plots.mm)
 
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="noiseless", color=:black, linewidth=2.2)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="uniform",   color=:gray,  linewidth=0.8, linestyle=:dash)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="", color=:white, linewidth=0)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="─ white noise (σ) ─", color=:black, linewidth=1.5)
+# Entries are interleaved left-to-right so legendcolumns=3 produces:
+#   col 1: reference lines  |  col 2: white noise (SNR)  |  col 3: colored noise (ρ)
+# Pick 4 representative SNR and ρ levels (min, two intermediates, max).
+i_snr = [1,
+         round(Int, 1 + (n_SNR_grad - 1) / 3),
+         round(Int, 1 + 2 * (n_SNR_grad - 1) / 3),
+         n_SNR_grad]
+i_ρ   = [1,
+         round(Int, 1 + (n_ρ_grad - 1) / 3),
+         round(Int, 1 + 2 * (n_ρ_grad - 1) / 3),
+         n_ρ_grad]
 
-for (i, snr) in enumerate(SNR_grad)
-    lbl = i == 1        ? "SNR=$(round(SNR_grad[1],   sigdigits=2)) (min)" :
-          i == n_SNR_grad ? "SNR=$(round(SNR_grad[end], sigdigits=2)) (max)" :
-          i % 3 == 1    ? "SNR=$(round(snr, sigdigits=2))"                 : ""
-    isempty(lbl) && continue
-    plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=lbl, color=SNR_colors[i], linewidth=1.5)
+# Row 1: column headers (reference is blank; white-noise and ρ headers are gray text lines)
+plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=" ",                         color=:white,   linewidth=0)
+plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="── white noise (SNR) ──",   color=:dimgray, linewidth=1.0)
+plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="── colored noise (ρ) ──",   color=:dimgray, linewidth=1.0)
+
+# Rows 2–5: one reference entry, one SNR entry, one ρ entry per row
+ref_entries = [
+    () -> plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="noiseless", color=:black, linewidth=2.2),
+    () -> plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="uniform",   color=:gray,  linewidth=0.8, linestyle=:dash),
+    () -> plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=L"\alpha=0.05", color=:gray, linewidth=1.0),
+    () -> plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=" ", color=:white, linewidth=0),
+]
+for k in 1:4
+    ref_entries[k]()
+    i = i_snr[k]
+    snr_lbl = k == 1 ? "σ₀ = $(round(SNR_grad[i], sigdigits=2)) (min)" :
+              k == 4 ? "σ₀ = $(round(SNR_grad[i], sigdigits=2)) (max)" :
+                       "σ₀ = $(round(SNR_grad[i], sigdigits=2))"
+    plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=snr_lbl, color=SNR_colors[i], linewidth=1.5)
+    j = i_ρ[k]
+    ρ_lbl = k == 1 ? "ρ = $(round(ρ_grad[j], digits=2)) (min)" :
+            k == 4 ? "ρ = $(round(ρ_grad[j], digits=2)) (max)" :
+                     "ρ = $(round(ρ_grad[j], digits=2))"
+    plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=ρ_lbl, color=ρ_colors[j], linewidth=1.5)
 end
-
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="", color=:white, linewidth=0)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="─ colored noise (ρ) ─", color=:steelblue, linewidth=1.5)
-
-for (i, ρ) in enumerate(ρ_grad)
-    lbl = i == 1       ? "ρ=$(round(ρ_grad[1],   digits=2)) (min)" :
-          i == n_ρ_grad ? "ρ=$(round(ρ_grad[end], digits=2)) (max)" :
-          i % 3 == 0   ? "ρ=$(round(ρ, digits=2))"                  : ""
-    isempty(lbl) && continue
-    plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=lbl, color=ρ_colors[i], linewidth=1.5)
-end
-
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="", color=:white, linewidth=0)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label=L"\alpha=0.05", color=:gray, linewidth=1.0)
-
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="", color=:white, linewidth=0)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="─ Δ majorization ─", color=:black, linewidth=1.5)
-plot!(fig, [NaN], [NaN]; subplot=legend_idx, label="line: |Δ| (all)", color=:gray, linewidth=1.2)
-scatter!(fig, [NaN], [NaN]; subplot=legend_idx, markershape=:circle,
-         markercolor=:gray, markerstrokecolor=:gray, markersize=4, label="○ noisy > clean")
 
 savefig(fig, joinpath(figure_folder, "synthetic_majorization_combined.png"))
-println("Saved to $(figure_folder)/synthetic_majorization_combined.png")
+savefig(fig, joinpath(figure_folder, "synthetic_majorization_combined.pdf"))
+println("Saved to $(figure_folder)/synthetic_majorization_combined.{png,pdf}")
 
 # ============================================================
 # CE plane figure: 2×3 panel (5 signals + legend)
@@ -595,7 +574,7 @@ scatter!(cp_leg, [NaN], [NaN]; label="noiseless", markersize=9, markershape=:cir
          markercolor=:black, markerstrokecolor=:white, markerstrokewidth=1.5)
 plot!(cp_leg, [NaN], [NaN]; label="admissible region", color=:steelblue, linewidth=8, alpha=0.35)
 plot!(cp_leg, [NaN], [NaN]; label="", color=:white, linewidth=0)
-plot!(cp_leg, [NaN], [NaN]; label="SNR level", color=:black, linewidth=0)
+plot!(cp_leg, [NaN], [NaN]; label=L"$\sigma_0$ level", color=:black, linewidth=0)
 for i in eachindex(SNR_grad)
     i % 3 == 1 || continue
     exp_int = round(Int, log10(SNR_grad[i]))
@@ -604,7 +583,7 @@ for i in eachindex(SNR_grad)
              markerstrokecolor=SNR_colors[i], markersize=5, markershape=:circle)
 end
 plot!(cp_leg, [NaN], [NaN]; label="", color=:white, linewidth=0)
-plot!(cp_leg, [NaN], [NaN]; label="SNR range", color=:black, linewidth=0)
+plot!(cp_leg, [NaN], [NaN]; label=L"$\sigma_0$ range", color=:black, linewidth=0)
 for r in 1:_snr_n_ranges
     exp_lo = _snr_exp_lo + r - 1
     exp_hi = _snr_exp_lo + r
@@ -620,7 +599,8 @@ fig_ce = plot(cp1, cp2, cp3, cp4, cp_zoom, cp5, cp_leg;
               size   = (1050, 600), dpi=600)
 
 savefig(fig_ce, joinpath(figure_folder, "CE_plane_fivepanel.png"))
-println("Saved to $(figure_folder)/CE_plane_fivepanel.png")
+savefig(fig_ce, joinpath(figure_folder, "CE_plane_fivepanel.pdf"))
+println("Saved to $(figure_folder)/CE_plane_fivepanel.{png,pdf}")
 
 # ------------------------------------------------------------
 # H and C vs SNR — one line per signal
@@ -647,11 +627,11 @@ _log_all_lbls   = [v in _log_major_vals ?
 _snr_xticks = (_log_all_vals, _log_all_lbls)
 
 p_H = plot(dpi=300, legend=false, framestyle=:box, grid=:none,
-           xlabel="SNR", ylabel=L"H",
+           xlabel=L"Noise level ($\sigma_0$)", ylabel=L"H",
            guidefontsize=11, tickfontsize=9, legendfontsize=8,
            xscale=:log10, ylims=(0.5, 1.0), xticks=_snr_xticks, margin=5Plots.mm)
 p_C = plot(dpi=300, legend=false, framestyle=:box, grid=:none,
-           xlabel="SNR", ylabel=L"C",
+           xlabel=L"Noise level ($\sigma_0$)", ylabel=L"C",
            guidefontsize=11, tickfontsize=9, legendfontsize=8,
            xscale=:log10, ylims=(0.0, 0.5), xticks=_snr_xticks, margin=5Plots.mm)
 
@@ -677,5 +657,6 @@ fig_HC_snr = plot(p_H, p_C, p_leg_HC;
                   layout=@layout([grid(1, 2) c{0.18w}]),
                   size=(1200, 400), dpi=600)
 
-savefig(fig_HC_snr, joinpath(figure_folder, "HC_vs_SNR.png"))
-println("Saved to $(figure_folder)/HC_vs_SNR.png")
+savefig(fig_HC_snr, joinpath(figure_folder, "CE_vs_sigma.png"))
+savefig(fig_HC_snr, joinpath(figure_folder, "CE_vs_sigma.pdf"))
+println("Saved to $(figure_folder)/CE_vs_sigma.{png,pdf}")

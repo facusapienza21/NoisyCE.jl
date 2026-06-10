@@ -49,6 +49,7 @@ function majorization_test(
     n2::Int;
     B::Int=10000,
     α::Real=0.05,
+    c::Real=1.0,
     )
 
     d = length(p̂)
@@ -59,23 +60,34 @@ function majorization_test(
     Sq   = majorization_curve(q̂)
     gaps = Sp[1:d-1] .- Sq[1:d-1]
 
-    # Delta-method variance: Var[S_k(p̂)] ≈ S_k(p)(1-S_k(p))/n; independent samples add.
-    # We then defined the estimated variance of the sum of gap between p and q.
-    V̂ = Sp[1:d-1] .* (1 .- Sp[1:d-1]) ./ n1 .+ Sq[1:d-1] .* (1 .- Sq[1:d-1]) ./ n2
-    σ̂ = sqrt.(max.(V̂, 0.0))
-
-    # Exclude constraints where both cumulative sums are near 1: the gap is a difference
-    # of two near-cancelling numbers and σ̂_k → 0 there, making the ratio unreliable.
     n_eff  = n1 * n2 / (n1 + n2)
-    thresh = 1.0 - 1.0 / sqrt(n_eff)
+
+    # Delta-method variance: Var[S_k(p̂)] ≈ S_k(p)(1-S_k(p))/n; independent samples add.
+    V̂ = Sp[1:d-1] .* (1 .- Sp[1:d-1]) ./ n1 .+ Sq[1:d-1] .* (1 .- Sq[1:d-1]) ./ n2
+    # Floor σ̂ at the degenerate-tail scale (~1/n_eff) so the standardised ratio is
+    # never inflated by σ̂ → 0; the floor sits well below ordinary mid-k σ̂.
+    σ_floor = 1.0 / n_eff
+    σ̂ = max.(sqrt.(max.(V̂, 0.0)), σ_floor)
+
+    # Exclude indices to close to 1.0
+    thresh = 1.0 - 1.0 / n_eff
     valid_idx = findall(.!((Sp[1:d-1] .>= thresh) .& (Sq[1:d-1] .>= thresh)))
+
+    # All constraints excluded → both curves are nearly uniform; test is uninformative.
+    # Return p_value = 1.0 (fail to reject H₀) as a conservative fallback.
+    if isempty(valid_idx)
+        return (T_obs=0.0, p_value=1.0, reject=false,
+                selected=Int[], gaps=gaps, σ̂=σ̂, thresh=thresh)
+    end
 
     gaps_valid = gaps[valid_idx]
     σ̂_valid   = σ̂[valid_idx]
-    T_obs  = minimum(gaps_valid)
+    # Student of the GMS scale
+    z_valid    = gaps_valid ./ σ̂_valid
+    T_obs  = minimum(z_valid)
 
     # GMS selection within valid constraints
-    sel_local = _gms_select(gaps_valid, σ̂_valid, n1, n2)
+    sel_local = _gms_select(z_valid, n_eff, c)
     selected  = valid_idx[sel_local]   # global indices (for inspection)
 
     # Bootstrap: single pass over valid constraints only
@@ -85,7 +97,8 @@ function majorization_test(
         cq_star = _multinomial_draw(q̂, n2) ./ n2
         g_star  = majorization_curve(cp_star)[1:d-1] .-
                   majorization_curve(cq_star)[1:d-1]
-        T_boot[b] = minimum((g_star[valid_idx] .- gaps_valid)[sel_local])
+        z_star  = (g_star[valid_idx] .- gaps_valid) ./ σ̂_valid   # divide by the FIXED sample σ̂
+        T_boot[b] = minimum(z_star[sel_local])
     end
 
     p_value = mean(T_boot .<= T_obs)
@@ -101,7 +114,7 @@ function majorization_test(
     )
 end
 
-function _gms_select(gaps, σ̂, n1, n2)
+function _gms_select(z, n_eff, c)
     # GMS threshold κ_n must satisfy κ_n → ∞ and κ_n/√n → 0 (Andrews & Guggenberger 2010).
     # The original single-sample proposal uses κ_n = √log(n).  In the two-sample setting the
     # variance of each gap estimator is σ₁²/n1 + σ₂²/n2, so the quantity governing sampling
@@ -110,11 +123,9 @@ function _gms_select(gaps, σ̂, n1, n2)
     # inference and κ_n should reflect that.  Using n1+n2 instead inflates κ_n, selecting
     # nearly all constraints and biasing T_boot negative (order-statistics artifact), which
     # destroys test power without any gain in size control.
-    n_eff    = n1 * n2 / (n1 + n2)
-    κ_n      = sqrt(log(n_eff))
-    std_gaps = ifelse.(σ̂ .> 0, gaps ./ σ̂, ifelse.(gaps .<= 0, -Inf, Inf))
-    selected = findall(std_gaps .<= κ_n)
-    isempty(selected) ? collect(eachindex(gaps)) : selected
+    κ_n      = c * sqrt(log(n_eff))
+    selected = findall(z .<= κ_n)
+    isempty(selected) ? collect(eachindex(z)) : selected
 end
 
 """

@@ -26,7 +26,7 @@ using Statistics
 const N_sim = 5000   # number of simulation repetitions
 const n     = 4000   # sample size for each draw
 const d     = 120    # number of bins
-const B     = 5000   # bootstrap replicates per test
+const B     = 1000   # bootstrap replicates per test
 const seed  = 666
 const lw    = 1.5    # line width for majorization curves
 const lw_pv = 2.5    # line width for QQ and CDF plots
