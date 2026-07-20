@@ -1,3 +1,10 @@
+# ============================================================
+# Generates:
+#   - Figure 5 (majorization_max_noise),
+# Author : Facundo Sapienza
+# Date   : 2026-07-20
+# ============================================================
+
 ENV["GKSwstype"] = "100"
 
 import Pkg
